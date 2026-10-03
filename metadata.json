@@ -1,0 +1,6 @@
+{
+  "name": "Abel Crop Intelligence",
+  "description": "An interactive agricultural Intelligence advisor highlighting cereals, fruits, and vegetables, their requirements, variants, Abel AI insights, and real-time Frogcast weather.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
