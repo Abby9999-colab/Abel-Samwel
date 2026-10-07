@@ -45,36 +45,48 @@ import {
   FileText,
   Zap,
   Gauge,
-  Timer
+  Timer,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
+  Camera,
+  UploadCloud,
+  ImageIcon,
+  FileImage,
+  Bug,
+  Stethoscope,
+  AudioLines,
+  Play,
+  Square,
+  CalendarClock,
+  ChevronDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Crop, CropCategory, WeatherForecastDay, WeatherForecastResponse } from './types';
+import { 
+  Crop, 
+  CropCategory, 
+  WeatherForecastDay, 
+  WeatherForecastResponse, 
+  ImageAnalysisResult,
+  CropTask,
+  LocationPreset
+} from './types';
 import { CROPS_DATA } from './data/crops';
 import { AGRIBUSINESSES } from './data/companies';
 import { DEFAULT_PROHIBITED_TERMS, LEGAL_CHARTER } from './data/terms';
 import FallingRainBackground from './components/FallingRainBackground';
 import LegalTermsModal from './components/LegalTermsModal';
+import CropGrowthChart from './components/CropGrowthChart';
+import LocationModal, { ALL_LOCATION_PRESETS } from './components/LocationModal';
+import DueAlertsBanner from './components/DueAlertsBanner';
+import TasksTab from './components/TasksTab';
 // @ts-ignore
 import appIcon from './assets/images/app_icon_1780129514145.png';
 
-// Location coordinate presets for Tanzanian agriculture
-interface LocationPreset {
-  name: string;
-  lat: number;
-  lon: number;
-}
-
-const LOCATION_PRESETS: LocationPreset[] = [
-  { name: 'Kilimanjaro Highlands (Coffee & Bananas)', lat: -3.3410, lon: 37.3424 },
-  { name: 'Mbeya Southern Highlands (Maize & Wheat)', lat: -8.9094, lon: 33.4608 },
-  { name: 'Morogoro Eastern Basin (Rice & Fruits)', lat: -6.8278, lon: 37.6591 },
-  { name: 'Dodoma Semi-Arid Zone (Sorghum & Sunflowers)', lat: -6.1731, lon: 35.7419 },
-  { name: 'Zanzibar Island (Spices & Cassava)', lat: -6.1659, lon: 39.1990 }
-];
-
 export default function App() {
   // Navigation & Category States
-  const [activeTab, setActiveTab] = useState<'catalog' | 'search' | 'weather' | 'assistant' | 'companies' | 'settings'>('catalog');
+  const [activeTab, setActiveTab] = useState<'catalog' | 'search' | 'weather' | 'tasks' | 'assistant' | 'companies' | 'settings'>('catalog');
   const [selectedCategory, setSelectedCategory] = useState<CropCategory | 'all'>('all');
   const [companyFilter, setCompanyFilter] = useState<'all' | 'Tanzanian' | 'Global'>('all');
   
@@ -226,20 +238,393 @@ export default function App() {
   const [searchWaterFilter, setSearchWaterFilter] = useState<'all' | 'low' | 'high'>('all');
   const [searchHarvestSpeed, setSearchHarvestSpeed] = useState<'all' | 'fast' | 'slow'>('all');
 
-  // Weather states
-  const [selectedLocation, setSelectedLocation] = useState<LocationPreset>(LOCATION_PRESETS[0]);
+  // Weather & Farm Location states (with persistence)
+  const [selectedLocation, setSelectedLocation] = useState<LocationPreset>(() => {
+    try {
+      const saved = localStorage.getItem('abel_selected_location');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return ALL_LOCATION_PRESETS[0];
+  });
+  const [showLocationModal, setShowLocationModal] = useState<boolean>(false);
   const [weatherData, setWeatherData] = useState<WeatherForecastResponse | null>(null);
   const [weatherLoading, setWeatherLoading] = useState<boolean>(true);
   const [weatherError, setWeatherError] = useState<string | null>(null);
   const [customLat, setCustomLat] = useState<string>('');
   const [customLon, setCustomLon] = useState<string>('');
+
+  // Persist selected location
+  useEffect(() => {
+    try {
+      localStorage.setItem('abel_selected_location', JSON.stringify(selectedLocation));
+    } catch (e) {}
+  }, [selectedLocation]);
+
+  // Farm Planting & Watering Task / Reminder states
+  const generateInitialTasks = (): CropTask[] => {
+    const today = new Date().toISOString().split('T')[0];
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+    const in3Days = new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0];
+
+    return [
+      {
+        id: 'task-initial-1',
+        title: 'Morning Drip Irrigation Cycle (Tomatoes)',
+        taskType: 'watering',
+        cropName: 'Tomato',
+        cropId: 'tomato',
+        dueDate: today,
+        dueTime: '07:30',
+        frequency: 'daily',
+        priority: 'high',
+        status: 'pending',
+        notes: 'Target 3.5L/plant soil moisture before morning temperature spikes above 25°C.',
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: 'task-initial-2',
+        title: 'Main Season Hybrid Maize Sowing Window',
+        taskType: 'planting',
+        cropName: 'Maize',
+        cropId: 'maize',
+        dueDate: today,
+        dueTime: '08:00',
+        frequency: 'once',
+        priority: 'critical',
+        status: 'pending',
+        notes: 'Optimal planting window: Sow at 75cm x 25cm with DAP basal dressing in loose tilth.',
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: 'task-initial-3',
+        title: 'Secondary Loam Moisture Top-up (Coffee)',
+        taskType: 'watering',
+        cropName: 'Arabica Coffee',
+        cropId: 'coffee',
+        dueDate: tomorrow,
+        dueTime: '06:30',
+        frequency: 'weekly',
+        priority: 'medium',
+        status: 'pending',
+        notes: 'Maintain root collar moisture during flowering stage.',
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: 'task-initial-4',
+        title: 'First Nitrogen (CAN) Top-Dressing at Knee-High',
+        taskType: 'fertilizer',
+        cropName: 'Maize',
+        cropId: 'maize',
+        dueDate: in3Days,
+        dueTime: '09:00',
+        frequency: 'once',
+        priority: 'high',
+        status: 'pending',
+        notes: 'Apply 50kg/acre CAN in moist soil 5cm away from maize stems.',
+        createdAt: new Date().toISOString()
+      }
+    ];
+  };
+
+  const [tasks, setTasks] = useState<CropTask[]>(() => {
+    try {
+      const saved = localStorage.getItem('abel_crop_tasks');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return generateInitialTasks();
+  });
+
+  // Save tasks to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('abel_crop_tasks', JSON.stringify(tasks));
+    } catch (e) {}
+  }, [tasks]);
+
+  const handleAddTask = (newTaskData: Omit<CropTask, 'id' | 'createdAt' | 'status'>) => {
+    const newTask: CropTask = {
+      ...newTaskData,
+      id: `task-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    };
+    setTasks(prev => [newTask, ...prev]);
+  };
+
+  const handleToggleCompleteTask = (taskId: string) => {
+    setTasks(prev => prev.map(t => {
+      if (t.id !== taskId) return t;
+      const isCompleting = t.status === 'pending';
+
+      if (isCompleting && t.frequency !== 'once') {
+        const currentDate = new Date(t.dueDate);
+        let daysToAdd = 1;
+        if (t.frequency === 'daily') daysToAdd = 1;
+        else if (t.frequency === 'every_2_days') daysToAdd = 2;
+        else if (t.frequency === 'weekly') daysToAdd = 7;
+        else if (t.frequency === 'biweekly') daysToAdd = 14;
+
+        currentDate.setDate(currentDate.getDate() + daysToAdd);
+        const nextDueDate = currentDate.toISOString().split('T')[0];
+
+        return {
+          ...t,
+          dueDate: nextDueDate,
+          status: 'pending'
+        };
+      }
+
+      return {
+        ...t,
+        status: isCompleting ? 'completed' : 'pending',
+        completedAt: isCompleting ? new Date().toISOString() : undefined
+      };
+    }));
+  };
+
+  const handleDeleteTask = (taskId: string) => {
+    setTasks(prev => prev.filter(t => t.id !== taskId));
+  };
+
+  const handleSnoozeTask = (taskId: string, days: number = 1) => {
+    setTasks(prev => prev.map(t => {
+      if (t.id !== taskId) return t;
+      const d = new Date(t.dueDate);
+      d.setDate(d.getDate() + days);
+      return {
+        ...t,
+        dueDate: d.toISOString().split('T')[0]
+      };
+    }));
+  };
+
+  // Due alerts count for navigation badge
+  const todayDateStr = new Date().toISOString().split('T')[0];
+  const dueAlertsCount = tasks.filter(t => t.status === 'pending' && t.dueDate <= todayDateStr).length;
   
+  // Helper to completely strip star marks / asterisks from AI responses
+  const stripStarMarks = (text: string): string => {
+    if (!text) return '';
+    return text
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/^\s*[\*•]\s+/gm, '- ')
+      .replace(/\*/g, '');
+  };
+
   // Abel AI Assistant States
   const [aiPrompt, setAiPrompt] = useState<string>('');
   const [aiResponse, setAiResponse] = useState<string>('');
   const [aiLoading, setAiLoading] = useState<boolean>(false);
   const [aiCropsList, setAiCropsList] = useState<string[]>([]);
   const [aiSuitability, setAiSuitability] = useState<string>('');
+  const [assistantSubTab, setAssistantSubTab] = useState<'chat' | 'vision'>('chat');
+
+  // Voice Chat States
+  const [isListening, setIsListening] = useState<boolean>(false);
+  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
+  const [speechSupported, setSpeechSupported] = useState<boolean>(true);
+  const [voiceModeActive, setVoiceModeActive] = useState<boolean>(false);
+  const [voiceStatusText, setVoiceStatusText] = useState<string>('');
+
+  // Crop Vision & Pathology Scanner States
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [uploadedImageName, setUploadedImageName] = useState<string>('');
+  const [imageNotes, setImageNotes] = useState<string>('');
+  const [imageAnalyzing, setImageAnalyzing] = useState<boolean>(false);
+  const [imageAnalysisResult, setImageAnalysisResult] = useState<ImageAnalysisResult | null>(null);
+  const [imageAnalysisError, setImageAnalysisError] = useState<string | null>(null);
+  const [selectedCropHint, setSelectedCropHint] = useState<string>('Maize (Zea mays)');
+
+  // Preset Sample Crop Photos for Instant 1-Click Diagnostic Testing
+  const SAMPLE_DISEASE_PHOTOS = [
+    {
+      title: 'Maize - Armyworm Attack',
+      titleSw: 'Mahindi - Funza wa Jeshi',
+      image: 'https://images.unsplash.com/photo-1551462147-ff29053bfc14?auto=format&fit=crop&q=80&w=600',
+      hint: 'Maize (Zea mays)',
+      notes: 'Leaf whorl feeding damage and ragged edges from armyworm caterpillar feeding.'
+    },
+    {
+      title: 'Tomato - Early Leaf Blight',
+      titleSw: 'Nyanya - Ukungu wa Majani',
+      image: 'https://images.unsplash.com/photo-1592841200221-a6898f307baa?auto=format&fit=crop&q=80&w=600',
+      hint: 'Tomato (Solanum lycopersicum)',
+      notes: 'Concentric ring brown lesions on lower leaves with chlorotic halo.'
+    },
+    {
+      title: 'Coffee - Rust Pustules',
+      titleSw: 'Kahawa - Kutu ya Majani',
+      image: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&q=80&w=600',
+      hint: 'Arabica Coffee (Coffea arabica)',
+      notes: 'Orange powdery rust pustules on leaf underside with premature defoliation.'
+    },
+    {
+      title: 'Bean - Vigorous Healthy',
+      titleSw: 'Maharage - Afya Nzuri',
+      image: 'https://images.unsplash.com/photo-1595855759920-86582396756a?auto=format&fit=crop&q=80&w=600',
+      hint: 'Phaseolus vulgaris (Common Bean)',
+      notes: 'Vibrant green canopy, normal chlorophyll density for baseline monitoring.'
+    }
+  ];
+
+  // Web Speech API Voice Recognition (Speech-to-Text)
+  const toggleSpeechRecognition = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setSpeechSupported(false);
+      return;
+    }
+
+    if (isListening) {
+      setIsListening(false);
+      setVoiceStatusText('');
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = swahiliPreference ? 'sw-TZ' : 'en-US';
+      recognition.continuous = false;
+      recognition.interimResults = true;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setVoiceStatusText(swahiliPreference ? 'Inasikiliza sauti ya mkulima...' : 'Listening... Speak your agronomic question');
+      };
+
+      recognition.onresult = (event: any) => {
+        let transcript = '';
+        for (let i = 0; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        setAiPrompt(transcript);
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+        setVoiceStatusText(swahiliPreference ? 'Hitilafu ya sauti. Jaribu tena.' : 'Speech error. Try again.');
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+        setVoiceStatusText('');
+      };
+
+      recognition.start();
+    } catch (err) {
+      console.error(err);
+      setIsListening(false);
+    }
+  };
+
+  // Web Speech API Text-to-Speech Output
+  const speakText = (text: string) => {
+    if (!('speechSynthesis' in window)) return;
+    
+    window.speechSynthesis.cancel();
+    if (isSpeaking) {
+      setIsSpeaking(false);
+      return;
+    }
+
+    // Clean text of asterisks, markdown, and brackets for crisp spoken delivery
+    const cleanSpokenText = stripStarMarks(text)
+      .replace(/#/g, '')
+      .replace(/\[!\]/g, '')
+      .replace(/- /g, '')
+      .replace(/Abel Crop Intelligence API Signed Release/g, 'Diagnosed by Abel Crop Intelligence.');
+
+    const utterance = new SpeechSynthesisUtterance(cleanSpokenText);
+    utterance.lang = swahiliPreference ? 'sw' : 'en-US';
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const stopSpeaking = () => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+    }
+  };
+
+  // Image Upload and Analysis Handlers
+  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadedImageName(file.name);
+    setImageAnalysisError(null);
+    setImageAnalysisResult(null);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setUploadedImage(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSelectSamplePhoto = (sample: typeof SAMPLE_DISEASE_PHOTOS[0]) => {
+    setUploadedImage(sample.image);
+    setUploadedImageName(swahiliPreference ? sample.titleSw : sample.title);
+    setSelectedCropHint(sample.hint);
+    setImageNotes(sample.notes);
+    setImageAnalysisResult(null);
+    setImageAnalysisError(null);
+  };
+
+  const clearUploadedImage = () => {
+    setUploadedImage(null);
+    setUploadedImageName('');
+    setImageAnalysisResult(null);
+    setImageAnalysisError(null);
+  };
+
+  const analyzeCropImage = async () => {
+    if (!uploadedImage) return;
+
+    setImageAnalyzing(true);
+    setImageAnalysisError(null);
+
+    try {
+      const res = await fetch('/api/abel/analyze-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image: uploadedImage,
+          cropHint: selectedCropHint,
+          userNotes: imageNotes,
+          language: swahiliPreference ? 'sw' : 'en'
+        })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `Server returned ${res.status}`);
+      }
+
+      const data: ImageAnalysisResult = await res.json();
+      setImageAnalysisResult(data);
+    } catch (err: any) {
+      console.error(err);
+      setImageAnalysisError(err.message || 'Failed to analyze crop image');
+    } finally {
+      setImageAnalyzing(false);
+    }
+  };
+
+  const sendDiagnosisToChat = (result: ImageAnalysisResult) => {
+    const promptText = `I scanned a ${result.plantIdentified} image. Condition: ${result.plantCondition}. Primary Issue: ${result.primaryIssue}. Health Score: ${result.healthScore}/100. Pests: ${result.pestDetected || 'None'}. Disease: ${result.diseaseDetected || 'None'}. Please provide a prioritized regional treatment protocol.`;
+    setAiPrompt(promptText);
+    setAssistantSubTab('chat');
+  };
   
   // Search state for crops
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -356,11 +741,15 @@ export default function App() {
           throw new Error(`Abel API status code exception: ${fallbackRes.status}`);
         }
         const data = await fallbackRes.json();
-        setAiResponse(data.advice);
+        const cleanAdvice = stripStarMarks(data.advice);
+        setAiResponse(cleanAdvice);
         setAiResponseTimeMs(data.latencyMs || (Date.now() - clientStartTime));
         if (data.cached) setAiResponseCached(true);
         if (data.recommendedCrops) setAiCropsList(data.recommendedCrops);
         if (data.climateAnalysis) setAiSuitability(data.climateAnalysis.suitability);
+        if (voiceModeActive && cleanAdvice) {
+          speakText(cleanAdvice);
+        }
         return;
       }
 
@@ -384,13 +773,18 @@ export default function App() {
               const data = JSON.parse(trimmed.slice(5).trim());
               if (data.chunk) {
                 accumulated += data.chunk;
-                setAiResponse(accumulated);
+                setAiResponse(stripStarMarks(accumulated));
               }
               if (data.done) {
+                const finalClean = stripStarMarks(accumulated);
+                setAiResponse(finalClean);
                 setAiResponseTimeMs(data.latencyMs || (Date.now() - clientStartTime));
                 if (data.cached) setAiResponseCached(true);
                 if (data.recommendedCrops) setAiCropsList(data.recommendedCrops);
                 if (data.climateAnalysis) setAiSuitability(data.climateAnalysis.suitability);
+                if (voiceModeActive && finalClean) {
+                  speakText(finalClean);
+                }
               }
               if (data.error) {
                 setAiResponse(`Failed to request help: ${data.error}`);
@@ -498,13 +892,23 @@ export default function App() {
 
           {/* Quick info / Weather capsule at the top */}
           <div className="flex items-center gap-4 bg-slate-900/50 backdrop-blur-md rounded-2xl p-3 border border-blue-950/60 self-start md:self-center">
-            <div className="flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-blue-400" />
-              <div className="text-left">
-                <p className="text-[10px] uppercase font-mono tracking-wider text-slate-400">Agricultural Area</p>
-                <p className="text-xs font-semibold text-white">{selectedLocation.name}</p>
+            <button
+              type="button"
+              onClick={() => setShowLocationModal(true)}
+              className="flex items-center gap-2.5 group text-left cursor-pointer hover:bg-slate-800/50 p-1.5 -m-1.5 rounded-xl transition-all"
+              title={swahiliPreference ? "Bofya kubadilisha eneo au kuratibu za shamba lako" : "Click to change your farm location or GPS station"}
+            >
+              <div className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 group-hover:bg-blue-500/20 group-hover:text-blue-300 transition-colors">
+                <MapPin className="w-4 h-4" />
               </div>
-            </div>
+              <div className="text-left">
+                <div className="flex items-center gap-1.5">
+                  <p className="text-[10px] uppercase font-mono tracking-wider text-slate-400">Agricultural Area</p>
+                  <span className="text-[9px] font-mono text-blue-400 group-hover:text-blue-300 underline underline-offset-2">Change ↗</span>
+                </div>
+                <p className="text-xs font-semibold text-white group-hover:text-blue-200 transition-colors max-w-[160px] truncate">{selectedLocation.name}</p>
+              </div>
+            </button>
             <div className="h-8 w-px bg-blue-950/80" />
             <div className="flex items-center gap-2">
               {weatherLoading ? (
@@ -560,6 +964,21 @@ export default function App() {
               <Droplets className="w-4 h-4" /> {swahiliPreference ? 'Hali ya Hewa (Frogcast)' : 'Frogcast Meteorological Feeds'}
             </button>
             <button
+              onClick={() => setActiveTab('tasks')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium tracking-wide transition-all cursor-pointer relative ${
+                activeTab === 'tasks'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-950/50 font-semibold'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+              }`}
+            >
+              <CalendarClock className="w-4 h-4" /> {swahiliPreference ? 'Ratiba na Vikumbusho' : 'Task & Reminders'}
+              {dueAlertsCount > 0 && (
+                <span className="ml-0.5 px-1.5 py-0.2 text-[10px] font-mono font-bold bg-amber-500 text-slate-950 rounded-full animate-pulse shadow-sm">
+                  {dueAlertsCount}
+                </span>
+              )}
+            </button>
+            <button
               onClick={() => setActiveTab('assistant')}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium tracking-wide transition-all cursor-pointer relative ${
                 activeTab === 'assistant'
@@ -592,8 +1011,8 @@ export default function App() {
             </button>
           </div>
 
-          {/* Quick search input (Hidden on Settings page) */}
-          {activeTab !== 'settings' && (
+          {/* Quick search input (Hidden on Settings & Tasks pages) */}
+          {activeTab !== 'settings' && activeTab !== 'tasks' && (
             <div className="relative w-full sm:w-72">
               <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
               <input
@@ -634,7 +1053,16 @@ export default function App() {
         </div>
 
         {/* Dynamic Display Sections */}
-        <main className="flex-grow">
+        <main className="flex-grow space-y-6">
+          {/* Due Planting & Watering Schedule Alerts Banner at Top of Dashboard */}
+          <DueAlertsBanner
+            tasks={tasks}
+            onCompleteTask={handleToggleCompleteTask}
+            onSnoozeTask={handleSnoozeTask}
+            onOpenTasksTab={() => setActiveTab('tasks')}
+            swahiliPreference={swahiliPreference}
+          />
+
           <AnimatePresence mode="wait">
             
             {/* View 1: Crop Catalog */}
@@ -967,18 +1395,31 @@ export default function App() {
                   
                   {/* Left panel: Config and stations */}
                   <div className="glass-panel rounded-2xl p-5 space-y-5">
-                    <div>
-                      <h3 className="font-display font-medium text-md text-white mb-1 flex items-center gap-2">
-                        <MapPin className="w-4 h-4 text-blue-400" /> Select Agricultural Area
-                      </h3>
-                      <p className="text-xs text-slate-400">
-                        Select a target Tanzanian agricultural microclimate station to pull real-time forecasts.
-                      </p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-display font-medium text-md text-white mb-1 flex items-center gap-2">
+                          <MapPin className="w-4 h-4 text-blue-400" /> {swahiliPreference ? 'Chagua Eneo la Kilimo' : 'Select Agricultural Area'}
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          {swahiliPreference 
+                            ? 'Chagua kituo cha hali ya hewa au rekebisha kuratibu za GPS ya shamba lako.' 
+                            : 'Select a target Tanzanian agricultural microclimate station or set custom GPS.'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowLocationModal(true)}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-mono font-semibold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 shadow-md shadow-blue-950"
+                        title={swahiliPreference ? "Fungua dirisha la kubadilisha eneo na GPS" : "Open full location changer and GPS tool"}
+                      >
+                        <Compass className="w-3.5 h-3.5" />
+                        <span>{swahiliPreference ? 'Badilisha Eneo' : 'Change Location'}</span>
+                      </button>
                     </div>
 
                     {/* Pre-installed presets selection */}
-                    <div className="space-y-2">
-                      {LOCATION_PRESETS.map((preset) => (
+                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                      {ALL_LOCATION_PRESETS.map((preset) => (
                         <button
                           key={preset.name}
                           onClick={() => setSelectedLocation(preset)}
@@ -1216,6 +1657,26 @@ export default function App() {
               </motion.div>
             )}
 
+            {/* View: Tasks & Schedule Reminders */}
+            {activeTab === 'tasks' && (
+              <motion.div
+                key="tasks_tab"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+              >
+                <TasksTab
+                  tasks={tasks}
+                  onAddTask={handleAddTask}
+                  onToggleComplete={handleToggleCompleteTask}
+                  onDeleteTask={handleDeleteTask}
+                  onSnoozeTask={handleSnoozeTask}
+                  swahiliPreference={swahiliPreference}
+                />
+              </motion.div>
+            )}
+
             {/* View 3: AI Assistant */}
             {activeTab === 'assistant' && (
               <motion.div
@@ -1226,6 +1687,7 @@ export default function App() {
                 transition={{ duration: 0.2 }}
                 className="max-w-4xl mx-auto space-y-6"
               >
+                {/* Header card with Sub-Tab Selector & Speed Controls */}
                 <div className="glass-panel rounded-2xl p-6 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/5 rounded-full filter blur-3xl pointer-events-none" />
 
@@ -1241,7 +1703,7 @@ export default function App() {
                           </span>
                           <span className="text-[9px] uppercase font-mono tracking-widest bg-amber-950/60 text-amber-300 px-2.5 py-1 rounded-md border border-amber-800/30 flex items-center gap-1">
                             <Zap className="w-3 h-3 text-amber-400" />
-                            {aiSpeedMode === 'ultra_fast' ? 'Ultra-Fast Mode Active' : 'Balanced Mode Active'}
+                            {aiSpeedMode === 'ultra_fast' ? 'Ultra-Fast Mode (~0.25s)' : 'Balanced Mode Active'}
                           </span>
                         </div>
                         <h3 className="font-display font-medium text-lg text-white mt-1">
@@ -1249,8 +1711,8 @@ export default function App() {
                         </h3>
                         <p className="text-xs text-slate-400 mt-1">
                           {swahiliPreference 
-                            ? 'Ushauri wa haraka wa kilimo kwa kutumia Gemini 3.1 Flash-Lite na teknolojia ya utiririshaji wa haraka (SSE Streaming).'
-                            : 'Query Abel AI powered by low-latency Gemini 3.1 Flash-Lite with real-time SSE token streaming for sub-second responses.'}
+                            ? 'Ushauri wa haraka wa kilimo kwa kutumia Gemini 3.1 Flash-Lite, uchunguzi wa sauti, na skana ya picha za magonjwa ya mazao.'
+                            : 'Query Abel AI with voice chat, ultra-fast streaming responses, and multimodal photo diagnosis for plant diseases & pests.'}
                         </p>
                       </div>
                     </div>
@@ -1286,193 +1748,670 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Ask Form */}
-                  <div className="mt-6 space-y-4">
-                    <div className="flex flex-col space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
-                          {swahiliPreference ? 'Uliza Swali kwa Abel AI' : 'Ask Abel AI a question'}
-                        </label>
+                  {/* Mode Navigation Tabs: Agronomic Chat vs Photo Vision Scanner */}
+                  <div className="mt-5 pt-4 border-t border-blue-950/60 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex bg-slate-950 p-1 rounded-xl border border-blue-950/80">
+                      <button
+                        type="button"
+                        onClick={() => setAssistantSubTab('chat')}
+                        className={`px-4 py-2 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer flex items-center gap-2 ${
+                          assistantSubTab === 'chat'
+                            ? 'bg-blue-600 text-white shadow-md'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <Bot className="w-3.5 h-3.5 text-blue-300" />
+                        <span>{swahiliPreference ? 'Ushauri wa Kilimo & Sauti' : 'Agronomic Chat & Voice'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAssistantSubTab('vision')}
+                        className={`px-4 py-2 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer flex items-center gap-2 ${
+                          assistantSubTab === 'vision'
+                            ? 'bg-emerald-600 text-white shadow-md'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <Camera className="w-3.5 h-3.5 text-emerald-300" />
+                        <span>{swahiliPreference ? 'Skana ya Picha za Magonjwa' : 'Crop Photo & Disease Scanner'}</span>
+                        <span className="text-[9px] bg-emerald-950 text-emerald-300 border border-emerald-700/50 px-1.5 py-0.2 rounded font-mono">
+                          API
+                        </span>
+                      </button>
+                    </div>
+
+                    {/* Voice Mode Toggle (Only in chat sub-tab) */}
+                    {assistantSubTab === 'chat' && (
+                      <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => { setInitialTermsTab('prohibited'); setShowTermsModal(true); }}
-                          className="text-[10px] font-mono text-slate-500 hover:text-blue-400 transition-colors cursor-pointer flex items-center gap-1"
+                          onClick={() => {
+                            if (voiceModeActive && isSpeaking) stopSpeaking();
+                            setVoiceModeActive(!voiceModeActive);
+                          }}
+                          className={`px-3 py-1.5 rounded-xl border text-xs font-mono flex items-center gap-1.5 transition-all cursor-pointer ${
+                            voiceModeActive 
+                              ? 'bg-emerald-950/80 border-emerald-600/80 text-emerald-300 shadow-md'
+                              : 'bg-slate-900 border-blue-950 text-slate-400 hover:text-white'
+                          }`}
+                          title="Read out Abel AI answers automatically"
                         >
-                          <ShieldAlert className="w-3 h-3 text-slate-500" />
-                          {swahiliPreference ? 'Sera ya Vigezo Vilivyokatazwa' : 'Prohibited Terms Policy'}
+                          <Volume2 className={`w-3.5 h-3.5 ${voiceModeActive ? 'text-emerald-400 animate-pulse' : 'text-slate-400'}`} />
+                          <span>{swahiliPreference ? 'Majibu ya Sauti:' : 'Voice Output:'}</span>
+                          <span className={`text-[10px] font-bold ${voiceModeActive ? 'text-emerald-300' : 'text-slate-500'}`}>
+                            {voiceModeActive ? 'ON' : 'OFF'}
+                          </span>
                         </button>
                       </div>
-                      <div className="relative">
-                        <textarea
-                          placeholder="e.g. Which of the coffee variants (Arabica, Robusta, Liberica) works best in high acid hillside loose loam with 1500mm rain?"
-                          value={aiPrompt}
-                          onChange={(e) => setAiPrompt(e.target.value)}
-                          rows={3}
-                          className={`w-full bg-slate-950 border ${
-                            findProhibitedTerm(aiPrompt) 
-                              ? 'border-red-600 focus:border-red-500 focus:ring-red-500' 
-                              : 'border-blue-950 focus:border-blue-700 focus:ring-blue-700'
-                          } p-4 rounded-xl text-xs text-white placeholder-slate-600 outline-none focus:ring-1 transition-all font-sans resize-none`}
-                        />
+                    )}
+                  </div>
+                </div>
+
+                {/* SUB-VIEW 1: AGRONOMIC CHAT & VOICE (TEXTAREA ALWAYS BELOW THE DIV COMPONENT) */}
+                {assistantSubTab === 'chat' && (
+                  <div className="space-y-6">
+                    {/* 1. THE DIV COMPONENT: AI Diagnostic Report & Response Terminal (ALWAYS ABOVE TEXTAREA) */}
+                    <div className="glass-panel p-6 rounded-2xl space-y-4 border-l-4 border-l-emerald-500 shadow-xl transition-all">
+                      <div className="flex items-center justify-between border-b border-blue-950 pb-3 flex-wrap gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono font-medium tracking-wide text-blue-400 flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                            {aiResponse || aiLoading 
+                              ? (swahiliPreference ? 'Ripoti ya Uchunguzi wa Abel AI' : 'Abel Crop Intelligence API Diagnostic Report')
+                              : (swahiliPreference ? 'Kituo cha Ushauri wa Kilimo cha Abel AI' : 'Abel AI Agronomic Diagnostic Console')}
+                          </span>
+                          {aiResponseTimeMs !== null && (aiResponse || aiLoading) && (
+                            <span className="text-[10px] font-mono text-emerald-300 bg-emerald-950/80 border border-emerald-800/40 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <Zap className="w-2.5 h-2.5 text-amber-400" />
+                              {aiResponseCached ? 'Cache Hit' : `${(aiResponseTimeMs / 1000).toFixed(2)}s`}
+                              {aiResponseCached && ` (${aiResponseTimeMs}ms)`}
+                            </span>
+                          )}
+                          {!aiResponse && !aiLoading && (
+                            <span className="text-[10px] font-mono text-emerald-300 bg-emerald-950/80 border border-emerald-800/40 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                              {swahiliPreference ? 'Tayari Kutoa Ushauri' : 'Ready & Connected'}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {/* Audio Speak / Listen Button */}
+                          {aiResponse && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isSpeaking) {
+                                  stopSpeaking();
+                                } else {
+                                  speakText(aiResponse);
+                                }
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-mono flex items-center gap-1.5 transition-all cursor-pointer ${
+                                isSpeaking 
+                                  ? 'bg-red-950 border border-red-700 text-red-300 animate-pulse'
+                                  : 'bg-blue-950 hover:bg-blue-900 border border-blue-800/50 text-blue-300'
+                              }`}
+                              title="Listen to Abel AI's diagnosis aloud via speech synthesis"
+                            >
+                              {isSpeaking ? (
+                                <>
+                                  <Square className="w-3 h-3 text-red-400" />
+                                  <span>{swahiliPreference ? 'Acha Sauti' : 'Stop Audio'}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Volume2 className="w-3 h-3 text-emerald-400" />
+                                  <span>{swahiliPreference ? 'Sikiliza Sauti' : 'Listen Aloud'}</span>
+                                </>
+                              )}
+                            </button>
+                          )}
+
+                          {aiStreamingActive && (
+                            <span className="text-[10px] font-mono text-amber-300 bg-amber-950/80 border border-amber-800/50 px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                              Live SSE Stream
+                            </span>
+                          )}
+                          {aiSuitability && (
+                            <span className="text-[10px] font-mono uppercase bg-emerald-900/45 text-emerald-300 border border-emerald-800/45 px-2 py-0.5 rounded">
+                              Suitability: {aiSuitability}
+                            </span>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Quick Prompt Suggestions for Fast Diagnostics */}
-                      <div className="flex items-center gap-1.5 flex-wrap pt-1">
-                        <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider">
-                          {swahiliPreference ? 'Mifano ya Haraka:' : 'Instant Prompts:'}
-                        </span>
-                        {[
-                          { en: '🌽 Optimal maize fertilizer for Southern Highlands', sw: '🌽 Mbolea bora ya mahindi Nyanda za Juu Kusini' },
-                          { en: '☕ Drought-hardy Arabica coffee variants', sw: '☕ Aina ya kahawa inayostahimili ukame' },
-                          { en: '🍅 Tomato leaf blight remedy', sw: '🍅 Dawa ya ukungu kwenye nyanya' },
-                          { en: '💧 Sandy soil irrigation cycles', sw: '💧 Ratiba ya kumwagilia udongo wa mchanga' }
-                        ].map((promptItem, pIdx) => (
-                          <button
-                            key={pIdx}
-                            type="button"
-                            onClick={() => {
-                              const text = swahiliPreference ? promptItem.sw : promptItem.en;
-                              setAiPrompt(text);
-                            }}
-                            className="text-[10px] bg-slate-900 hover:bg-blue-950 text-slate-400 hover:text-blue-300 border border-blue-950/80 px-2 py-0.5 rounded-lg transition-colors cursor-pointer"
-                          >
-                            {swahiliPreference ? promptItem.sw : promptItem.en}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Live Prohibited Term Alert */}
-                      {findProhibitedTerm(aiPrompt) && (
-                        <div className="p-3 bg-red-950/40 border border-red-900/60 rounded-xl flex items-center justify-between gap-3 text-red-300 text-xs animate-fade-in">
-                          <div className="flex items-center gap-2">
-                            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
-                            <span>
-                              {swahiliPreference 
-                                ? `Neno lililopigwa marufuku: "${findProhibitedTerm(aiPrompt)}". Maombi ya sumu au uvunaji data yamezuiwa.` 
-                                : `Prohibited term detected: "${findProhibitedTerm(aiPrompt)}". Queries involving banned toxics or scraping exploits are restricted.`}
+                      {/* Content of the DIV Component */}
+                      {aiLoading && !aiResponse ? (
+                        <div className="py-10 text-center space-y-2">
+                          <div className="w-6 h-6 rounded-full border-2 border-emerald-500/20 border-t-emerald-400 animate-spin mx-auto" />
+                          <p className="text-xs text-slate-400 font-mono">
+                            {swahiliPreference ? 'Mfumo wa Abel AI (Flash-Lite) unaandaa data ya haraka...' : 'Gemini 3.1 Flash-Lite generating agronomic solution...'}
+                          </p>
+                        </div>
+                      ) : aiResponse ? (
+                        <div className="space-y-4 animate-fade-in text-xs text-slate-200 leading-relaxed font-sans prose prose-invert max-w-none">
+                          <div className="whitespace-pre-line leading-relaxed">
+                            {stripStarMarks(aiResponse)}
+                            {aiStreamingActive && (
+                              <span className="inline-block w-2 h-3.5 bg-emerald-400 animate-pulse ml-0.5 align-middle" />
+                            )}
+                          </div>
+                          
+                          {aiCropsList.length > 0 && (
+                            <div className="mt-4 pt-3 border-t border-blue-950 flex items-center gap-2.5 flex-wrap">
+                              <span className="text-[10px] uppercase font-mono tracking-wider text-slate-400">Linked Catalog Items:</span>
+                              {aiCropsList.map((c) => (
+                                <button
+                                  key={c}
+                                  onClick={() => {
+                                    const cItem = CROPS_DATA.find(cr => cr.id === c);
+                                    if (cItem) {
+                                      setSelectedCrop(cItem);
+                                      setActiveTab('catalog');
+                                    }
+                                  }}
+                                  className="text-[10px] bg-blue-950 hover:bg-blue-600/40 text-blue-300 border border-blue-900/40 px-2.5 py-1 rounded-lg transition-colors cursor-pointer capitalize font-mono"
+                                >
+                                  {c}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 mt-2 pt-2 border-t border-blue-950/40">
+                            <span className="flex items-center gap-1">
+                              <Zap className="w-3 h-3 text-amber-400" />
+                              {aiSpeedMode === 'ultra_fast' ? 'Gemini 3.1 Flash-Lite Engine' : 'Gemini 3.8 Flash Engine'}
+                            </span>
+                            <span className="italic">
+                              Abel Crop Intelligence API Signed Release
                             </span>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => { setInitialTermsTab('prohibited'); setShowTermsModal(true); }}
-                            className="text-[10px] font-mono uppercase bg-red-950 border border-red-800 text-red-300 px-2 py-1 rounded hover:bg-red-900/50 cursor-pointer shrink-0"
-                          >
-                            {swahiliPreference ? 'Soma Sera' : 'Review Charter'}
-                          </button>
+                        </div>
+                      ) : (
+                        <div className="py-3 space-y-3">
+                          <p className="text-xs text-slate-300 leading-relaxed">
+                            {swahiliPreference
+                              ? 'Mfumo wa Abel AI wa kilimo uko tayari. Andika swali lako lolote kuhusu mbegu bora, udongo, mahitaji ya mbolea au ratiba ya umwagiliaji kwenye sehemu ya maandishi hapa chini, au chagua mfano wa haraka.'
+                              : 'Abel AI agronomic engine is active and ready. Enter your questions about varieties, soil requirements, fertilizer rates, or irrigation in the text area below, or choose an instant prompt.'}
+                          </p>
+
+                          <div className="p-3 bg-slate-950/60 rounded-xl border border-blue-950/70 flex items-center justify-between gap-3 text-slate-400 text-xs flex-wrap">
+                            <span className="flex items-center gap-2">
+                              <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              <span className="text-[11px] font-mono">
+                                {aiSpeedMode === 'ultra_fast' 
+                                  ? (swahiliPreference ? 'Hali ya Haraka Sana (~0.25s TTFT streaming)' : 'Ultra-Fast Mode (~0.25s TTFT streaming with Gemini 3.1 Flash-Lite)') 
+                                  : (swahiliPreference ? 'Hali ya Kawaida (Gemini 3.8 Flash)' : 'Balanced Mode (Comprehensive reasoning with Gemini 3.8 Flash)')}
+                              </span>
+                            </span>
+                            <span className="text-[10px] font-mono text-slate-500 flex items-center gap-1">
+                              <Database className="w-3 h-3 text-slate-500" />
+                              <span>Station: <strong className="text-slate-300">{selectedLocation.name}</strong></span>
+                            </span>
+                          </div>
                         </div>
                       )}
                     </div>
 
-                    <div className="flex items-center justify-between gap-4 flex-wrap text-xs">
-                      <div className="flex items-center gap-1.5 text-slate-400">
-                        <Database className="w-3.5 h-3.5 text-slate-500" />
-                        <span>Active Station : <strong className="text-white">{selectedLocation.name}</strong></span>
-                      </div>
-                      <button
-                        onClick={() => askAbelAI()}
-                        disabled={aiLoading || !aiPrompt.trim()}
-                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-semibold transition-all disabled:opacity-50 cursor-pointer shadow-lg shadow-blue-950/50"
-                      >
-                        {aiLoading ? (
-                          <>
-                            <Zap className="w-4 h-4 animate-pulse text-amber-300" /> 
-                            {aiStreamingActive ? (swahiliPreference ? 'Inatiririsha Majibu...' : 'Streaming Response...') : (swahiliPreference ? 'Inachakata...' : 'Synthesizing...')}
-                          </>
-                        ) : (
-                          <>
-                            <Zap className="w-3.5 h-3.5 text-amber-300" /> 
-                            {swahiliPreference ? 'Uliza Haraka (Flash-Lite)' : 'Request Fast AI Diagnostics'}
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* AI response display block */}
-                {(aiResponse || aiLoading) && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="glass-panel p-6 rounded-2xl space-y-4 border-l-4 border-l-emerald-500"
-                  >
-                    <div className="flex items-center justify-between border-b border-blue-950 pb-3 flex-wrap gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono font-medium tracking-wide text-blue-400 flex items-center gap-1">
-                          <Sparkles className="w-3.5 h-3.5 text-emerald-400" /> Abel Crop Intelligence API Diagnostic Report
-                        </span>
-                        {aiResponseTimeMs !== null && (
-                          <span className="text-[10px] font-mono text-emerald-300 bg-emerald-950/80 border border-emerald-800/40 px-2 py-0.5 rounded-full flex items-center gap-1">
-                            <Zap className="w-2.5 h-2.5 text-amber-400" />
-                            {aiResponseCached ? 'Cache Hit' : `${(aiResponseTimeMs / 1000).toFixed(2)}s`}
-                            {aiResponseCached && ` (${aiResponseTimeMs}ms)`}
-                          </span>
-                        )}
-                      </div>
-                      
-                      <div className="flex items-center gap-2">
-                        {aiStreamingActive && (
-                          <span className="text-[10px] font-mono text-amber-300 bg-amber-950/80 border border-amber-800/50 px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
-                            Live SSE Stream
-                          </span>
-                        )}
-                        {aiSuitability && (
-                          <span className="text-[10px] font-mono uppercase bg-emerald-900/45 text-emerald-300 border border-emerald-800/45 px-2 py-0.5 rounded">
-                            Suitability Analysis: {aiSuitability}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {aiLoading && !aiResponse ? (
-                      <div className="py-12 text-center space-y-2">
-                        <div className="w-6 h-6 rounded-full border-2 border-emerald-500/20 border-t-emerald-400 animate-spin mx-auto" />
-                        <p className="text-xs text-slate-400 font-mono">
-                          {swahiliPreference ? 'Mfumo wa Abel AI (Flash-Lite) unaandaa data ya haraka...' : 'Gemini 3.1 Flash-Lite generating agronomic solution...'}
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-4 animate-fade-in text-xs text-slate-200 leading-relaxed font-sans prose prose-invert max-w-none">
-                        <div className="whitespace-pre-line leading-relaxed">
-                          {aiResponse}
-                          {aiStreamingActive && (
-                            <span className="inline-block w-2 h-3.5 bg-emerald-400 animate-pulse ml-0.5 align-middle" />
-                          )}
+                    {/* 2. THE TEXTAREA INPUT COMPONENT: ALWAYS BELOW THE DIV COMPONENT */}
+                    <div className="glass-panel p-6 rounded-2xl space-y-4 border border-blue-950/70 shadow-xl transition-all">
+                      <div className="flex flex-col space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-mono uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                            <span>{swahiliPreference ? 'Uliza Swali kwa Abel AI (Andika au Ongea kwa Sauti)' : 'Ask Abel AI a question (Type or use Voice)'}</span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => { setInitialTermsTab('prohibited'); setShowTermsModal(true); }}
+                            className="text-[10px] font-mono text-slate-500 hover:text-blue-400 transition-colors cursor-pointer flex items-center gap-1"
+                          >
+                            <ShieldAlert className="w-3 h-3 text-slate-500" />
+                            {swahiliPreference ? 'Sera ya Vigezo Vilivyokatazwa' : 'Prohibited Terms Policy'}
+                          </button>
                         </div>
-                        
-                        {aiCropsList.length > 0 && (
-                          <div className="mt-4 pt-3 border-t border-blue-950 flex items-center gap-2.5 flex-wrap">
-                            <span className="text-[10px] uppercase font-mono tracking-wider text-slate-400">Linked Catalog Items:</span>
-                            {aiCropsList.map((c) => (
-                              <button
-                                key={c}
-                                onClick={() => {
-                                  const cItem = CROPS_DATA.find(cr => cr.id === c);
-                                  if (cItem) {
-                                    setSelectedCrop(cItem);
-                                    setActiveTab('catalog');
-                                  }
-                                }}
-                                className="text-[10px] bg-blue-950 hover:bg-blue-600/40 text-blue-300 border border-blue-900/40 px-2.5 py-1 rounded-lg transition-colors cursor-pointer capitalize font-mono"
-                              >
-                                {c}
-                              </button>
-                            ))}
+
+                        {/* Textarea + Voice Microphone Control */}
+                        <div className="relative">
+                          <textarea
+                            placeholder="e.g. Which of the coffee variants (Arabica, Robusta, Liberica) works best in high acid hillside loose loam with 1500mm rain?"
+                            value={aiPrompt}
+                            onChange={(e) => setAiPrompt(e.target.value)}
+                            rows={3}
+                            className={`w-full bg-slate-950 border ${
+                              findProhibitedTerm(aiPrompt) 
+                                ? 'border-red-600 focus:border-red-500 focus:ring-red-500' 
+                                : 'border-blue-950 focus:border-blue-700 focus:ring-blue-700'
+                            } p-4 pr-14 rounded-xl text-xs text-white placeholder-slate-600 outline-none focus:ring-1 transition-all font-sans resize-none`}
+                          />
+
+                          {/* Voice Dictation Button inside Textarea */}
+                          <div className="absolute right-3 bottom-3 flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={toggleSpeechRecognition}
+                              className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-center ${
+                                isListening 
+                                  ? 'bg-red-600 border-red-500 text-white animate-pulse shadow-lg shadow-red-600/30 ring-2 ring-red-400'
+                                  : 'bg-slate-900 border-blue-900/60 text-slate-400 hover:text-blue-300 hover:bg-blue-950/60'
+                              }`}
+                              title={isListening ? 'Click to stop listening' : 'Click to speak question via voice (Speech-to-Text)'}
+                            >
+                              {isListening ? (
+                                <AudioLines className="w-4 h-4 text-white animate-bounce" />
+                              ) : (
+                                <Mic className="w-4 h-4" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Live Voice Status Indicator */}
+                        {isListening && (
+                          <div className="p-2.5 bg-red-950/40 border border-red-900/60 rounded-xl flex items-center gap-2 text-red-300 text-xs animate-fade-in">
+                            <span className="w-2 h-2 rounded-full bg-red-400 animate-ping shrink-0" />
+                            <span className="font-mono text-[11px] font-semibold">
+                              {voiceStatusText || (swahiliPreference ? 'Inasikiliza sauti yako... Ongea swali lako sasa' : 'Listening to your voice... Speak your agricultural question clearly')}
+                            </span>
                           </div>
                         )}
-                        <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 mt-2 pt-2 border-t border-blue-950/40">
-                          <span className="flex items-center gap-1">
-                            <Zap className="w-3 h-3 text-amber-400" />
-                            {aiSpeedMode === 'ultra_fast' ? 'Gemini 3.1 Flash-Lite Engine' : 'Gemini 3.8 Flash Engine'}
+
+                        {/* Quick Prompt Suggestions */}
+                        <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                          <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider">
+                            {swahiliPreference ? 'Mifano ya Haraka:' : 'Instant Prompts:'}
                           </span>
-                          <span className="italic">
-                            Abel Crop Intelligence API Signed Release
-                          </span>
+                          {[
+                            { en: '🌽 Optimal maize fertilizer for Southern Highlands', sw: '🌽 Mbolea bora ya mahindi Nyanda za Juu Kusini' },
+                            { en: '☕ Drought-hardy Arabica coffee variants', sw: '☕ Aina ya kahawa inayostahimili ukame' },
+                            { en: '🍅 Tomato leaf blight remedy', sw: '🍅 Dawa ya ukungu kwenye nyanya' },
+                            { en: '💧 Sandy soil irrigation cycles', sw: '💧 Ratiba ya kumwagilia udongo wa mchanga' }
+                          ].map((promptItem, pIdx) => (
+                            <button
+                              key={pIdx}
+                              type="button"
+                              onClick={() => {
+                                const text = swahiliPreference ? promptItem.sw : promptItem.en;
+                                setAiPrompt(text);
+                              }}
+                              className="text-[10px] bg-slate-900 hover:bg-blue-950 text-slate-400 hover:text-blue-300 border border-blue-950/80 px-2 py-0.5 rounded-lg transition-colors cursor-pointer"
+                            >
+                              {swahiliPreference ? promptItem.sw : promptItem.en}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Live Prohibited Term Alert */}
+                        {findProhibitedTerm(aiPrompt) && (
+                          <div className="p-3 bg-red-950/40 border border-red-900/60 rounded-xl flex items-center justify-between gap-3 text-red-300 text-xs animate-fade-in">
+                            <div className="flex items-center gap-2">
+                              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                              <span>
+                                {swahiliPreference 
+                                  ? `Neno lililopigwa marufuku: "${findProhibitedTerm(aiPrompt)}". Maombi ya sumu au uvunaji data yamezuiwa.` 
+                                  : `Prohibited term detected: "${findProhibitedTerm(aiPrompt)}". Queries involving banned toxics or scraping exploits are restricted.`}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => { setInitialTermsTab('prohibited'); setShowTermsModal(true); }}
+                              className="text-[10px] font-mono uppercase bg-red-950 border border-red-800 text-red-300 px-2 py-1 rounded hover:bg-red-900/50 cursor-pointer shrink-0"
+                            >
+                              {swahiliPreference ? 'Soma Sera' : 'Review Charter'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between gap-4 flex-wrap text-xs pt-1 border-t border-blue-950/60">
+                        <div className="flex items-center gap-1.5 text-slate-400">
+                          <Database className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Active Station : <strong className="text-white">{selectedLocation.name}</strong></span>
+                        </div>
+                        <button
+                          onClick={() => askAbelAI()}
+                          disabled={aiLoading || !aiPrompt.trim()}
+                          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-semibold transition-all disabled:opacity-50 cursor-pointer shadow-lg shadow-blue-950/50"
+                        >
+                          {aiLoading ? (
+                            <>
+                              <Zap className="w-4 h-4 animate-pulse text-amber-300" /> 
+                              {aiStreamingActive ? (swahiliPreference ? 'Inatiririsha Majibu...' : 'Streaming Response...') : (swahiliPreference ? 'Inachakata...' : 'Synthesizing...')}
+                            </>
+                          ) : (
+                            <>
+                              <Zap className="w-3.5 h-3.5 text-amber-300" /> 
+                              {swahiliPreference ? 'Uliza Haraka (Flash-Lite)' : 'Request Fast AI Diagnostics'}
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* SUB-VIEW 2: CROP PHOTO UPLOAD & DISEASE SCANNER */}
+                {assistantSubTab === 'vision' && (
+                  <div className="glass-panel rounded-2xl p-6 relative overflow-hidden space-y-5 animate-fade-in">
+                    <div className="mt-5 space-y-5 animate-fade-in">
+                      <div className="p-4 bg-emerald-950/20 border border-emerald-900/40 rounded-xl space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Stethoscope className="w-4 h-4 text-emerald-400" />
+                          <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-emerald-300">
+                            {swahiliPreference ? 'Uchunguzi wa Picha za Mazao, Wadudu na Magonjwa (Vision API)' : 'Multimodal Crop Vision & Pathology Diagnostic API'}
+                          </h4>
+                        </div>
+                        <p className="text-[11px] text-slate-300 leading-relaxed">
+                          {swahiliPreference 
+                            ? 'Pakia picha ya zao lako lililoathirika au chagua picha ya mfano. Abel AI inatathmini hali ya afya, inatambua wadudu waharibifu (mfano Funza wa Jeshi), magonjwa ya ukungu au virusi, na kutoa hatua za matibabu.'
+                            : 'Upload or capture a leaf, stem, or fruit photo. Abel AI analyzes cellular condition, diagnoses pests & pathogen infections, and computes an agronomic health score.'}
+                        </p>
+                      </div>
+
+                      {/* 1-Click Preset Samples for Instant Testing */}
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-mono uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                          <span>{swahiliPreference ? 'Picha za Mfano wa Uchunguzi wa Haraka (Gusa Kupima):' : 'Instant Preset Samples (Click to test diagnostic engine):'}</span>
+                          <span className="text-[9px] text-blue-400 font-mono">1-Click Test</span>
+                        </label>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                          {SAMPLE_DISEASE_PHOTOS.map((sample, sIdx) => (
+                            <button
+                              key={sIdx}
+                              type="button"
+                              onClick={() => handleSelectSamplePhoto(sample)}
+                              className={`p-2 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1.5 group ${
+                                uploadedImage === sample.image 
+                                  ? 'bg-emerald-950/60 border-emerald-500 shadow-md ring-1 ring-emerald-500'
+                                  : 'bg-slate-900/80 border-blue-950 hover:border-blue-800'
+                              }`}
+                            >
+                              <div className="w-full h-16 rounded-lg overflow-hidden bg-slate-950 border border-slate-800">
+                                <img
+                                  src={sample.image}
+                                  alt={sample.title}
+                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                />
+                              </div>
+                              <div>
+                                <p className="text-[11px] font-semibold text-white truncate">
+                                  {swahiliPreference ? sample.titleSw : sample.title}
+                                </p>
+                                <p className="text-[9px] font-mono text-slate-400 truncate">
+                                  {sample.hint}
+                                </p>
+                              </div>
+                            </button>
+                          ))}
                         </div>
                       </div>
-                    )}
-                  </motion.div>
+
+                      {/* Image Upload Dropzone / Preview Area */}
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                          {swahiliPreference ? 'Picha Yako ya Zao (Upload au Kamera):' : 'Custom Crop Photo (Upload or Camera):'}
+                        </label>
+
+                        {!uploadedImage ? (
+                          <label className="border-2 border-dashed border-blue-950 hover:border-emerald-600/70 bg-slate-950/60 hover:bg-slate-900/50 rounded-2xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all text-center group">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
+                              onChange={handleImageFileChange}
+                              className="hidden"
+                            />
+                            <div className="p-3 bg-blue-900/20 group-hover:bg-emerald-900/30 rounded-2xl border border-blue-800/40 text-blue-400 group-hover:text-emerald-400 transition-colors">
+                              <UploadCloud className="w-6 h-6" />
+                            </div>
+                            <div>
+                              <p className="text-xs font-semibold text-white">
+                                {swahiliPreference ? 'Bofya kupakia picha au kupiga kwa kamera' : 'Click to browse files or capture with camera'}
+                              </p>
+                              <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                JPG, PNG, WEBP (Direct leaf / stem close-ups work best)
+                              </p>
+                            </div>
+                          </label>
+                        ) : (
+                          <div className="p-4 bg-slate-950 rounded-2xl border border-blue-950/80 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+                            <div className="flex items-center gap-3.5">
+                              <div className="w-20 h-20 rounded-xl overflow-hidden shrink-0 border border-blue-900/40 bg-slate-900">
+                                <img
+                                  src={uploadedImage}
+                                  alt="Crop preview"
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] font-mono bg-emerald-950 text-emerald-300 border border-emerald-800/40 px-2 py-0.5 rounded">
+                                    Ready to Analyze
+                                  </span>
+                                </div>
+                                <h4 className="text-xs font-semibold text-white mt-1 font-display">
+                                  {uploadedImageName || 'Selected Crop Photograph'}
+                                </h4>
+                                <p className="text-[10px] font-mono text-slate-400 mt-0.5">
+                                  Target: {selectedCropHint}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={clearUploadedImage}
+                                className="px-3 py-1.5 rounded-lg border border-red-950 bg-red-950/30 hover:bg-red-950/60 text-red-300 text-xs font-mono transition-colors cursor-pointer flex items-center gap-1.5"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                {swahiliPreference ? 'Ondoa' : 'Remove'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Optional Context Inputs */}
+                      {uploadedImage && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                              {swahiliPreference ? 'Aina ya Zao (Crop Context):' : 'Crop Type Hint:'}
+                            </label>
+                            <input
+                              type="text"
+                              value={selectedCropHint}
+                              onChange={(e) => setSelectedCropHint(e.target.value)}
+                              placeholder="e.g. Maize, Tomato, Arabica Coffee, Rice"
+                              className="w-full bg-slate-950 border border-blue-950 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 outline-none focus:border-blue-700"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                              {swahiliPreference ? 'Uchunguzi wa Mkulima (Notes):' : 'Field Observations / Notes:'}
+                            </label>
+                            <input
+                              type="text"
+                              value={imageNotes}
+                              onChange={(e) => setImageNotes(e.target.value)}
+                              placeholder="e.g. White caterpillars noticed in whorl after rains"
+                              className="w-full bg-slate-950 border border-blue-950 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 outline-none focus:border-blue-700"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Run Diagnostic Button */}
+                      {uploadedImage && (
+                        <div className="pt-2 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={analyzeCropImage}
+                            disabled={imageAnalyzing}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-semibold text-xs font-mono uppercase tracking-wider transition-all disabled:opacity-50 cursor-pointer shadow-lg shadow-emerald-950/50 flex items-center gap-2"
+                          >
+                            {imageAnalyzing ? (
+                              <>
+                                <RefreshCw className="w-4 h-4 animate-spin text-emerald-300" />
+                                {swahiliPreference ? 'Inachambua Picha & Wadudu...' : 'Analyzing Plant Pathology & Pests...'}
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-4 h-4 text-emerald-300" />
+                                {swahiliPreference ? 'Fanya Uchunguzi wa Picha (Pathology API)' : 'Run Crop Image Analysis API'}
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Error Alert */}
+                      {imageAnalysisError && (
+                        <div className="p-3 bg-red-950/40 border border-red-900/60 rounded-xl text-red-300 text-xs flex items-center gap-2 animate-fade-in">
+                          <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                          <span>{imageAnalysisError}</span>
+                        </div>
+                      )}
+
+                      {/* Vision Analysis Results Presentation */}
+                      {imageAnalysisResult && (
+                        <div className="mt-6 p-5 bg-slate-950/90 border border-emerald-900/50 rounded-2xl space-y-5 animate-fade-in">
+                          {/* Result Header & Score Gauge */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-blue-950/70">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-mono uppercase tracking-wider bg-emerald-950 text-emerald-300 border border-emerald-800/40 px-2 py-0.5 rounded">
+                                  Diagnostic Verified
+                                </span>
+                                <span className="text-[10px] font-mono text-slate-400">
+                                  Confidence: {imageAnalysisResult.confidence}%
+                                </span>
+                              </div>
+                              <h3 className="font-display font-medium text-lg text-white mt-1">
+                                {imageAnalysisResult.plantIdentified}
+                              </h3>
+                              <p className="text-xs text-slate-400 mt-0.5">
+                                Condition: <strong className="text-slate-200">{imageAnalysisResult.plantCondition}</strong>
+                              </p>
+                            </div>
+
+                            {/* Health Meter & Severity Badge */}
+                            <div className="flex items-center gap-4 bg-slate-900/90 border border-blue-950 p-3 rounded-xl shrink-0">
+                              <div className="text-center">
+                                <span className="text-[9px] font-mono uppercase tracking-wider text-slate-400 block">Health Score</span>
+                                <span className={`text-xl font-mono font-bold ${
+                                  imageAnalysisResult.healthScore >= 80 ? 'text-emerald-400' :
+                                  imageAnalysisResult.healthScore >= 50 ? 'text-amber-400' : 'text-rose-400'
+                                }`}>
+                                  {imageAnalysisResult.healthScore}<span className="text-xs text-slate-500">/100</span>
+                                </span>
+                              </div>
+
+                              <div className="w-px h-8 bg-blue-950" />
+
+                              <div>
+                                <span className="text-[9px] font-mono uppercase tracking-wider text-slate-400 block">Severity</span>
+                                <span className={`text-xs font-mono font-semibold px-2 py-0.5 rounded ${
+                                  imageAnalysisResult.severity === 'Healthy' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/40' :
+                                  imageAnalysisResult.severity === 'Low Risk' ? 'bg-blue-950 text-blue-300 border border-blue-800/40' :
+                                  imageAnalysisResult.severity === 'Moderate' ? 'bg-amber-950 text-amber-300 border border-amber-800/40' :
+                                  'bg-rose-950 text-rose-300 border border-rose-800/40'
+                                }`}>
+                                  {imageAnalysisResult.severity}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Pests & Diseases Detection Summary */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                            {/* Pests Card */}
+                            <div className="p-3.5 bg-slate-900/80 border border-blue-950 rounded-xl space-y-1">
+                              <div className="flex items-center gap-1.5 text-amber-400 font-mono text-[10px] uppercase tracking-wider">
+                                <Bug className="w-3.5 h-3.5" />
+                                <span>Pest Vector Detected</span>
+                              </div>
+                              <p className="font-semibold text-white">
+                                {imageAnalysisResult.pestDetected || 'None detected'}
+                              </p>
+                            </div>
+
+                            {/* Disease Pathogen Card */}
+                            <div className="p-3.5 bg-slate-900/80 border border-blue-950 rounded-xl space-y-1">
+                              <div className="flex items-center gap-1.5 text-rose-400 font-mono text-[10px] uppercase tracking-wider">
+                                <Stethoscope className="w-3.5 h-3.5" />
+                                <span>Pathogen / Disease Detected</span>
+                              </div>
+                              <p className="font-semibold text-white">
+                                {imageAnalysisResult.diseaseDetected || 'None detected'}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Technical Pathology Diagnosis Report (Zero Asterisks) */}
+                          <div className="space-y-2">
+                            <h4 className="text-xs font-mono uppercase tracking-wider text-slate-300 font-semibold flex items-center gap-1.5">
+                              <Sparkles className="w-3.5 h-3.5 text-emerald-400" /> Technical Agronomic Diagnosis Report
+                            </h4>
+                            <div className="p-4 bg-slate-900/60 border border-blue-950/70 rounded-xl text-xs text-slate-300 leading-relaxed font-sans">
+                              {stripStarMarks(imageAnalysisResult.diagnosisReport)}
+                            </div>
+                          </div>
+
+                          {/* Treatment Steps Action Checklist */}
+                          {imageAnalysisResult.treatmentSteps && imageAnalysisResult.treatmentSteps.length > 0 && (
+                            <div className="space-y-2">
+                              <h4 className="text-xs font-mono uppercase tracking-wider text-emerald-400 font-semibold flex items-center gap-1.5">
+                                <CheckCircle2 className="w-3.5 h-3.5" /> Actionable Treatment Protocol (Tanzania Field-Approved)
+                              </h4>
+                              <div className="space-y-2">
+                                {imageAnalysisResult.treatmentSteps.map((step, idx) => (
+                                  <div key={idx} className="p-3 bg-slate-900/80 border border-blue-950 rounded-xl flex items-start gap-2.5 text-xs text-slate-200">
+                                    <span className="font-mono text-emerald-400 font-bold shrink-0">{idx + 1}.</span>
+                                    <span>{stripStarMarks(step)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Preventative Agronomic Advice */}
+                          {imageAnalysisResult.preventativeAdvice && imageAnalysisResult.preventativeAdvice.length > 0 && (
+                            <div className="space-y-2">
+                              <h4 className="text-xs font-mono uppercase tracking-wider text-blue-400 font-semibold flex items-center gap-1.5">
+                                <Leaf className="w-3.5 h-3.5" /> Preventative Cultural Practices
+                              </h4>
+                              <div className="space-y-1.5">
+                                {imageAnalysisResult.preventativeAdvice.map((advice, idx) => (
+                                  <div key={idx} className="text-xs text-slate-300 flex items-start gap-2">
+                                    <span className="text-blue-400 shrink-0">•</span>
+                                    <span>{stripStarMarks(advice)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Action Button: Send Diagnosis to Chat for Follow-Up */}
+                          <div className="pt-2 border-t border-blue-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <span className="text-[10px] font-mono text-slate-500">
+                              Abel Multimodal Vision Engine Signed Release
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => sendDiagnosisToChat(imageAnalysisResult)}
+                              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-mono transition-colors cursor-pointer flex items-center gap-1.5 self-start sm:self-auto"
+                            >
+                              <Bot className="w-3.5 h-3.5" />
+                              {swahiliPreference ? 'Jadili Matokeo Haya Kwenye Chat' : 'Ask Abel AI Follow-up Questions'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
               </motion.div>
             )}
@@ -1782,6 +2721,71 @@ export default function App() {
                           ? 'Mfumo unatumia teknolojia ya Abel AI kutafsiri vichwa vya habari na vipimo vya katalogi kwa urahisi wa matumizi.' 
                           : 'The localized workspace leverages Abel AI to translate indices, header tabs, and metrics references automatically.'}
                       </p>
+                    </div>
+                  </div>
+
+                  {/* Category: Farm Location & Microclimate Station */}
+                  <div className="glass-panel rounded-2xl p-6 border border-blue-950/40 md:col-span-2 space-y-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-blue-950/40">
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 bg-blue-600/10 border border-blue-500/20 rounded-xl text-blue-400">
+                          <MapPin className="w-5 h-5 stroke-2" />
+                        </div>
+                        <div>
+                          <h3 className="font-semibold text-white text-sm">
+                            {swahiliPreference ? 'Eneo la Shamba & Kituo cha Hali ya Hewa' : 'Farm Location & Agricultural Microclimate Station'}
+                          </h3>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            {swahiliPreference
+                              ? 'Eneo lako linaongoza utabiri wa Frogcast, mapendekezo ya mimea ya Abel AI na ratiba za kazi za shamba.'
+                              : 'Calibrates Frogcast meteorological feeds, Abel AI regional crop suitability, and localized planting windows.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowLocationModal(true)}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-mono font-semibold transition-all cursor-pointer shadow-md shadow-blue-950 shrink-0"
+                      >
+                        <Compass className="w-4 h-4" />
+                        <span>{swahiliPreference ? 'Badilisha Eneo / GPS' : 'Change Location / GPS'}</span>
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="p-3.5 bg-slate-950/70 rounded-xl border border-blue-950/80">
+                        <p className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">
+                          {swahiliPreference ? 'Kituo Kilichochaguliwa' : 'Selected Station'}
+                        </p>
+                        <p className="text-xs font-semibold text-white mt-1">{selectedLocation.name}</p>
+                        {selectedLocation.region && (
+                          <span className="inline-block mt-1.5 text-[9px] font-mono px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-900/40">
+                            {selectedLocation.region}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="p-3.5 bg-slate-950/70 rounded-xl border border-blue-950/80">
+                        <p className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">
+                          {swahiliPreference ? 'Kuratibu za GPS' : 'GPS Coordinates'}
+                        </p>
+                        <p className="text-xs font-mono font-semibold text-emerald-400 mt-1">
+                          Lat {selectedLocation.lat.toFixed(4)}, Lon {selectedLocation.lon.toFixed(4)}
+                        </p>
+                        <p className="text-[10px] text-slate-500 mt-1 font-mono">
+                          {swahiliPreference ? 'Kituo cha utabiri kipo hewani' : 'Active telemetry station'}
+                        </p>
+                      </div>
+
+                      <div className="p-3.5 bg-slate-950/70 rounded-xl border border-blue-950/80">
+                        <p className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">
+                          {swahiliPreference ? 'Hali ya Udongo & Ukanda' : 'Soil Profile & Zone'}
+                        </p>
+                        <p className="text-xs text-slate-300 mt-1 line-clamp-2">
+                          {selectedLocation.description || 'Custom user-specified farm coordinates'}
+                        </p>
+                      </div>
                     </div>
                   </div>
 
@@ -2457,6 +3461,11 @@ export default function App() {
 
                 <div className="h-px bg-blue-950/60" />
 
+                {/* D3-based Line Chart for Crop Growth Progression */}
+                <CropGrowthChart crop={selectedCrop} swahiliPreference={swahiliPreference} />
+
+                <div className="h-px bg-blue-950/60" />
+
                 {/* Major Crop Diseases Section */}
                 {selectedCrop.diseases && selectedCrop.diseases.length > 0 && (
                   <div className="space-y-4">
@@ -2593,10 +3602,32 @@ export default function App() {
                       askAbelAI(selectedCrop);
                       setSelectedCrop(null);
                     }}
-                    className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 font-semibold px-4 py-2.5 rounded-xl text-xs text-white transition-all cursor-pointer shadow-lg"
+                    className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 font-semibold px-4 py-2.5 rounded-xl text-xs text-white transition-all cursor-pointer shadow-lg"
                   >
                     Generate Specific Abel AI Advice
                     <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleAddTask({
+                        title: `Planting & Watering Plan: ${selectedCrop.name}`,
+                        taskType: 'planting',
+                        cropName: selectedCrop.name,
+                        cropId: selectedCrop.id,
+                        dueDate: new Date().toISOString().split('T')[0],
+                        dueTime: '08:00',
+                        frequency: 'once',
+                        priority: 'high',
+                        notes: `Follow agronomic recommendations for ${selectedCrop.name}: soil pH ${selectedCrop.requirements.soilPh}, water ${selectedCrop.requirements.waterMmPerSeason}.`
+                      });
+                      setActiveTab('tasks');
+                      setSelectedCrop(null);
+                    }}
+                    className="flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 border border-blue-900/60 font-semibold px-3 py-2.5 rounded-xl text-xs text-slate-200 hover:text-white transition-all cursor-pointer shadow-md"
+                    title={swahiliPreference ? "Weka ratiba ya zao hili" : "Add to Schedule Reminders"}
+                  >
+                    <CalendarClock className="w-3.5 h-3.5 text-blue-400" />
+                    <span>{swahiliPreference ? 'Weka Ratiba' : 'Schedule'}</span>
                   </button>
                 </div>
               </div>
@@ -2612,6 +3643,15 @@ export default function App() {
         onClose={() => setShowTermsModal(false)}
         swahiliPreference={swahiliPreference}
         initialTab={initialTermsTab}
+      />
+
+      {/* FARM LOCATION SELECTOR & GPS MODAL */}
+      <LocationModal
+        isOpen={showLocationModal}
+        onClose={() => setShowLocationModal(false)}
+        currentLocation={selectedLocation}
+        onSelectLocation={(loc) => setSelectedLocation(loc)}
+        swahiliPreference={swahiliPreference}
       />
 
     </div>

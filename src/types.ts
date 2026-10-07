@@ -70,3 +70,57 @@ export interface AIAdviceResponse {
     limitingFactor?: string;
   };
 }
+
+export interface GrowthStagePoint {
+  day: number;
+  stageName: string;
+  stageNameSw: string;
+  heightCm: number;
+  leafCount: number;
+  agronomicNote: string;
+  agronomicNoteSw: string;
+  keyAction: string;
+}
+
+export interface ImageAnalysisResult {
+  plantIdentified: string;
+  healthScore: number;
+  plantCondition: string;
+  primaryIssue: string;
+  confidence: number;
+  pestDetected?: string;
+  diseaseDetected?: string;
+  severity: 'Healthy' | 'Low Risk' | 'Moderate' | 'Severe';
+  diagnosisReport: string;
+  treatmentSteps: string[];
+  preventativeAdvice: string[];
+}
+
+export type TaskType = 'watering' | 'planting' | 'fertilizer' | 'pest_control' | 'harvesting' | 'general';
+export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
+export type TaskFrequency = 'once' | 'daily' | 'every_2_days' | 'weekly' | 'biweekly';
+
+export interface CropTask {
+  id: string;
+  title: string;
+  taskType: TaskType;
+  cropId?: string;
+  cropName?: string;
+  dueDate: string; // YYYY-MM-DD
+  dueTime?: string; // HH:MM
+  frequency: TaskFrequency;
+  priority: TaskPriority;
+  status: 'pending' | 'completed';
+  notes?: string;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface LocationPreset {
+  name: string;
+  lat: number;
+  lon: number;
+  region?: string;
+  description?: string;
+}
+
